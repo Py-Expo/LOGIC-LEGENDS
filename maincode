@@ -1,0 +1,108 @@
+import cv2
+import time
+import numpy as np
+from ultralytics import YOLO
+
+# Function to estimate distance
+def estimate_distance(object_height, focal_length, known_height):
+    return (known_height * focal_length) / object_height
+
+def draw_boxes(image, results, classNames, class_counts, living_classes, focal_length, known_height):
+    for r in results:
+        boxes = r.boxes
+
+        for box in boxes:
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+
+            confidence = round(float(box.conf[0]), 2)
+            cls = int(box.cls[0])
+            class_name = classNames[cls]
+
+            if class_name in class_counts:
+                class_counts[class_name] += 1
+
+            # Set color based on living or non-living classification
+            color = (0, 255, 0) if class_name in living_classes else (0, 0, 255)
+
+            # Draw bounding box
+            cv2.rectangle(image, (x1, y1), (x2, y2), color, 3)
+
+            # Draw class name and confidence
+            text = f"{class_name}: {confidence}"
+            org = (x1, y1 - 10)  
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            fontScale = 0.5
+            thickness = 1   
+            cv2.putText(image, text, org, font, fontScale, (255, 255, 255), thickness)
+
+            # Draw living/non-living label
+            label = "Living" if class_name in living_classes else "Non-living"
+            cv2.putText(image, label, (x1, y1 - 25), font, fontScale, color, thickness)
+
+            # Estimate and display distance
+            object_height = y2 - y1
+            distance = estimate_distance(object_height, focal_length, known_height)
+            cv2.putText(image, f"Distance: {distance:.2f} meters", (x1, y1 - 40), font, fontScale, color, thickness)
+
+
+cap = cv2.VideoCapture(0)
+cap.set(3, 640)
+cap.set(4, 480)
+
+model = YOLO("yolo-Weights/yolov8n.pt")
+
+classNames = ["person", "bicycle", "car", "motorbike", "aeroplane", "bus", "train", "truck", "boat",
+              "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat",
+              "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella",
+              "handbag", "tie", "suitcase", "frisbee", "skis", "snowboard", "sports ball", "kite", "baseball bat",
+              "baseball glove", "skateboard", "surfboard", "tennis racket", "bottle", "wine glass", "cup",
+              "fork", "knife", "spoon", "bowl", "banana", "apple", "sandwich", "orange", "broccoli",
+              "carrot", "hot dog", "pizza", "donut", "cake", "chair", "sofa", "pottedplant", "bed",
+              "diningtable", "toilet", "tvmonitor", "laptop", "mouse", "remote", "keyboard", "cell phone",
+              "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors",
+              "teddy bear", "hair drier", "toothbrush", "towel", "bag", "scale"]
+
+# List of classes considered as living things
+living_classes = ["person", "bird", "cat", "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe"]
+
+class_counts = {class_name: 0 for class_name in classNames}
+
+start_time = time.time()
+delay_time = 5  
+
+# Focal length and known height (for distance estimation)
+focal_length = 800  # Example focal length (adjust according to your camera)
+known_height = 1.8  # Example known height of object in meters (adjust according to your setup)
+
+while True:
+    success, img = cap.read()
+    if not success:
+        print("Failed to read frame from webcam")
+        break
+
+    results = model(img, stream=True)
+
+    class_counts = {class_name: 0 for class_name in classNames}
+
+    draw_boxes(img, results, classNames, class_counts, living_classes, focal_length, known_height)
+
+    cv2.imshow('Detected Objects', img)
+
+    if time.time() - start_time >= delay_time:
+        
+        detected_objects_image = np.zeros((15 * len(class_counts), 15 * 15, 3), dtype=np.uint8)
+        text_y = 15
+
+        for class_name, count in class_counts.items():
+            if count > 0:
+                cv2.putText(detected_objects_image, f"{class_name}: {count}", (15, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                text_y += 15  
+        cv2.imshow('Detected Object Counts', detected_objects_image)
+
+        start_time = time.time()
+
+    if cv2.waitKey(1) == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
